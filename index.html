@@ -207,6 +207,23 @@
       font-size: clamp(1.25rem, 4vw, 1.7rem);
     }
 
+    .name-highlighted-entry {
+      width: min(100%, 28rem);
+      margin: 0.55rem auto 0;
+    }
+
+    .name-highlighted-form {
+      display: flex;
+      align-items: stretch;
+      gap: 0.5rem;
+      margin: 0;
+    }
+
+    .name-highlighted-form .name-all-input {
+      min-width: 0;
+      flex: 1;
+    }
+
     .map-panel {
       display: block;
       width: 100%;
@@ -257,6 +274,10 @@
       fill: #339966;
     }
 
+    .geolonia-svg-map .prefecture.is-name-highlighted-target {
+      fill: #4d90c2;
+    }
+
     .geolonia-svg-map .prefecture.is-review-selected {
       stroke: #172f45;
       stroke-width: 4;
@@ -300,6 +321,14 @@
       margin: 0;
       font-size: 1.1rem;
       font-weight: 700;
+    }
+
+    .game-message.is-success {
+      color: #237a4c;
+    }
+
+    .game-message.is-revealed {
+      color: #9a6700;
     }
 
     .action-button {
@@ -371,6 +400,10 @@
 
     .guess-dot--correct {
       background: #339966;
+    }
+
+    .guess-dot--skipped {
+      background: #26313b;
     }
 
     .visually-hidden {
@@ -483,6 +516,7 @@
       <button class="mode-button is-active" type="button" data-mode="explore" aria-pressed="true">Explore</button>
       <button class="mode-button" type="button" data-mode="find-on-map" aria-pressed="false">Find on Map</button>
       <button class="mode-button" type="button" data-mode="name-all" aria-pressed="false">Name All</button>
+      <button class="mode-button" type="button" data-mode="name-highlighted" aria-pressed="false">Name Highlighted</button>
     </nav>
 
     <section id="game-banner" class="game-banner" aria-label="Find on Map round information" hidden>
@@ -492,6 +526,14 @@
       </div>
       <div class="game-centre">
         <strong id="game-prompt" class="game-prompt">Find Hokkaido</strong>
+        <div id="name-highlighted-entry" class="name-highlighted-entry" hidden>
+          <form id="name-highlighted-form" class="name-highlighted-form">
+            <label class="visually-hidden" for="name-highlighted-input">Highlighted prefecture name</label>
+            <input id="name-highlighted-input" class="name-all-input" type="text" placeholder="Type the highlighted prefecture’s name" autocomplete="off" spellcheck="false">
+            <button id="skip-name-highlighted" class="action-button" type="button">Skip</button>
+          </form>
+          <p id="name-highlighted-feedback" class="name-all-feedback" aria-live="polite"></p>
+        </div>
         <div id="game-controls" class="game-controls" aria-live="polite" hidden>
           <p id="game-message" class="game-message"></p>
           <button id="advance-round" class="action-button" type="button">Next round</button>
@@ -528,7 +570,7 @@
     </section>
 
     <section id="results" class="results" aria-live="polite" hidden>
-      <h2>Results</h2>
+      <h2 id="results-heading">Results</h2>
       <p id="results-score"></p>
       <ol id="round-results" class="round-results" aria-label="Round breakdown"></ol>
       <div class="result-actions">
@@ -747,7 +789,12 @@
       NAME_HIGHLIGHTED: "name-highlighted"
     });
 
-    const GAME_CONFIG = {
+    const FIND_ON_MAP_CONFIG = {
+      roundsPerGame: 10,
+      guessesPerRound: 3
+    };
+
+    const NAME_HIGHLIGHTED_CONFIG = {
       roundsPerGame: 10,
       guessesPerRound: 3
     };
@@ -802,10 +849,10 @@
       { code: "47", englishName: "Okinawa", japaneseName: "沖縄" }
     ];
 
-    const MAP_FILL_STATE_CLASSES = ["is-explore-selected", "is-incorrect", "is-correct", "is-revealed", "is-name-all-found"];
+    const MAP_FILL_STATE_CLASSES = ["is-explore-selected", "is-incorrect", "is-correct", "is-revealed", "is-name-all-found", "is-name-highlighted-target"];
     const MAP_REVIEW_STATE_CLASS = "is-review-selected";
     const MAP_STATE_CLASSES = [...MAP_FILL_STATE_CLASSES, MAP_REVIEW_STATE_CLASS];
-    const FEEDBACK_CLASSES = ["is-success", "is-duplicate", "is-invalid"];
+    const FEEDBACK_CLASSES = ["is-success", "is-duplicate", "is-invalid", "is-revealed"];
     const normalizeEnglishName = (name) => name.trim().toLowerCase();
     const prefecturesByCode = new Map(PREFECTURES.map((prefecture) => [prefecture.code, prefecture]));
     const prefecturesByEnglishName = new Map(PREFECTURES.map((prefecture) => [normalizeEnglishName(prefecture.englishName), prefecture]));
@@ -820,6 +867,7 @@
     const gameMessage = document.querySelector("#game-message");
     const advanceRoundButton = document.querySelector("#advance-round");
     const results = document.querySelector("#results");
+    const resultsHeading = document.querySelector("#results-heading");
     const resultsScore = document.querySelector("#results-score");
     const resultsBreakdown = document.querySelector("#round-results");
     const playAgainButton = document.querySelector("#play-again");
@@ -840,6 +888,11 @@
     const reviewSelection = document.querySelector("#review-selection");
     const playNameAllAgainButton = document.querySelector("#play-name-all-again");
     const nameAllReturnToExploreButton = document.querySelector("#name-all-return-to-explore");
+    const nameHighlightedEntry = document.querySelector("#name-highlighted-entry");
+    const nameHighlightedForm = document.querySelector("#name-highlighted-form");
+    const nameHighlightedInput = document.querySelector("#name-highlighted-input");
+    const skipNameHighlightedButton = document.querySelector("#skip-name-highlighted");
+    const nameHighlightedFeedback = document.querySelector("#name-highlighted-feedback");
     const mapPanel = document.querySelector(".map-panel");
     const map = document.querySelector(".geolonia-svg-map");
     const prefectureElements = document.querySelectorAll(".geolonia-svg-map .prefecture");
@@ -848,6 +901,7 @@
     let currentMode = MODES.EXPLORE;
     let findGame = null;
     let nameAllGame = null;
+    let nameHighlightedGame = null;
     let zoom = 1;
     let baseMapWidth;
     let baseMapHeight;
@@ -893,7 +947,7 @@
       return shuffled;
     };
 
-    const configuredRoundCount = () => Math.min(PREFECTURES.length, Math.max(1, Math.trunc(GAME_CONFIG.roundsPerGame)));
+    const configuredRoundCount = (config) => Math.min(PREFECTURES.length, Math.max(1, Math.trunc(config.roundsPerGame)));
 
     const updateModeButtons = () => {
       modeButtons.forEach((button) => {
@@ -903,7 +957,7 @@
       });
     };
 
-    const updateGameBanner = () => {
+    const updateFindGameBanner = () => {
       const target = findGame.roundQueue[findGame.roundIndex];
       roundProgress.textContent = `${findGame.roundIndex + 1} of ${findGame.roundQueue.length}`;
       gamePrompt.textContent = `Find ${target.englishName}`;
@@ -912,22 +966,25 @@
 
     const beginFindRound = () => {
       clearMapState();
-      findGame.guessesRemaining = GAME_CONFIG.guessesPerRound;
+      findGame.guessesRemaining = FIND_ON_MAP_CONFIG.guessesPerRound;
       findGame.incorrectCodes = new Set();
       findGame.roundResolved = false;
+      gameBanner.setAttribute("aria-label", "Find on Map round information");
       gameBanner.hidden = false;
+      nameHighlightedEntry.hidden = true;
       gameControls.hidden = true;
       results.hidden = true;
-      updateGameBanner();
+      setTextFeedback(gameMessage, "", null);
+      updateFindGameBanner();
     };
 
     const startFindOnMapGame = () => {
       clearMapState();
       selectedPrefecture.hidden = true;
       findGame = {
-        roundQueue: shufflePrefectures().slice(0, configuredRoundCount()),
+        roundQueue: shufflePrefectures().slice(0, configuredRoundCount(FIND_ON_MAP_CONFIG)),
         roundIndex: 0,
-        guessesRemaining: GAME_CONFIG.guessesPerRound,
+        guessesRemaining: FIND_ON_MAP_CONFIG.guessesPerRound,
         incorrectCodes: new Set(),
         roundResolved: false,
         correctRounds: 0,
@@ -943,10 +1000,10 @@
 
       if (wasCorrect) {
         findGame.correctRounds += 1;
-        gameMessage.textContent = "Correct!";
+        setTextFeedback(gameMessage, "Correct!", null);
       } else {
         setPrefectureVisualState(target.code, "is-revealed");
-        gameMessage.textContent = "Incorrect!";
+        setTextFeedback(gameMessage, "Incorrect!", null);
       }
 
       advanceRoundButton.textContent = findGame.roundIndex === findGame.roundQueue.length - 1 ? "See results" : "Next round";
@@ -976,9 +1033,125 @@
       findGame.incorrectCodes.add(code);
       findGame.guessesRemaining -= 1;
       setPrefectureVisualState(code, "is-incorrect");
-      updateGameBanner();
+      updateFindGameBanner();
 
       if (findGame.guessesRemaining === 0) resolveFindRound(false);
+    };
+
+    const updateNameHighlightedBanner = () => {
+      roundProgress.textContent = `${nameHighlightedGame.roundIndex + 1} of ${nameHighlightedGame.roundQueue.length}`;
+      gamePrompt.textContent = "Name this prefecture";
+      guessesRemaining.textContent = nameHighlightedGame.guessesRemaining;
+    };
+
+    const beginNameHighlightedRound = () => {
+      clearMapState();
+      nameHighlightedGame.guessesRemaining = NAME_HIGHLIGHTED_CONFIG.guessesPerRound;
+      nameHighlightedGame.attemptedPrefectureCodes = new Set();
+      nameHighlightedGame.incorrectGuesses = 0;
+      nameHighlightedGame.roundResolved = false;
+      gameBanner.setAttribute("aria-label", "Name Highlighted round information");
+      gameBanner.hidden = false;
+      nameHighlightedEntry.hidden = false;
+      gameControls.hidden = true;
+      results.hidden = true;
+      nameHighlightedInput.value = "";
+      setTextFeedback(nameHighlightedFeedback, "", null);
+      setTextFeedback(gameMessage, "", null);
+      updateNameHighlightedBanner();
+      setPrefectureVisualState(nameHighlightedGame.roundQueue[nameHighlightedGame.roundIndex].code, "is-name-highlighted-target");
+      requestAnimationFrame(() => nameHighlightedInput.focus());
+    };
+
+    const startNameHighlightedGame = () => {
+      clearMapState();
+      selectedPrefecture.hidden = true;
+      nameHighlightedGame = {
+        roundQueue: shufflePrefectures().slice(0, configuredRoundCount(NAME_HIGHLIGHTED_CONFIG)),
+        roundIndex: 0,
+        guessesRemaining: NAME_HIGHLIGHTED_CONFIG.guessesPerRound,
+        attemptedPrefectureCodes: new Set(),
+        incorrectGuesses: 0,
+        roundResolved: false,
+        correctRounds: 0,
+        roundResults: []
+      };
+      beginNameHighlightedRound();
+    };
+
+    const resolveNameHighlightedRound = (wasCorrect, wasSkipped = false) => {
+      const target = nameHighlightedGame.roundQueue[nameHighlightedGame.roundIndex];
+      nameHighlightedGame.roundResolved = true;
+      nameHighlightedGame.roundResults.push({ prefecture: target, incorrectGuesses: nameHighlightedGame.incorrectGuesses, wasCorrect, wasSkipped });
+      nameHighlightedEntry.hidden = true;
+
+      if (wasCorrect) {
+        nameHighlightedGame.correctRounds += 1;
+        setPrefectureVisualState(target.code, "is-correct");
+        setTextFeedback(gameMessage, "Correct!", "is-success");
+      } else {
+        setPrefectureVisualState(target.code, "is-revealed");
+        const message = wasSkipped ? `Skipped — The answer was ${target.englishName}` : `The answer was ${target.englishName}`;
+        setTextFeedback(gameMessage, message, "is-revealed");
+      }
+
+      advanceRoundButton.textContent = nameHighlightedGame.roundIndex === nameHighlightedGame.roundQueue.length - 1 ? "See results" : "Next round";
+      gameControls.hidden = false;
+      advanceRoundButton.focus();
+    };
+
+    const skipNameHighlightedRound = () => {
+      if (!nameHighlightedGame || nameHighlightedGame.roundResolved) return;
+      resolveNameHighlightedRound(false, true);
+    };
+
+    const submitNameHighlightedGuess = () => {
+      if (!nameHighlightedGame || nameHighlightedGame.roundResolved) return;
+
+      const submittedName = nameHighlightedInput.value;
+      if (!submittedName.trim()) return;
+
+      const normalizedSubmission = normalizeEnglishName(submittedName);
+      const target = nameHighlightedGame.roundQueue[nameHighlightedGame.roundIndex];
+      nameHighlightedInput.value = "";
+
+      if (["skip", "i don't know", "i don’t know"].includes(normalizedSubmission)) {
+        skipNameHighlightedRound();
+        return;
+      }
+
+      const prefecture = getPrefectureByEnglishName(submittedName);
+
+      if (prefecture && prefecture.code === target.code) {
+        resolveNameHighlightedRound(true);
+        return;
+      }
+
+      if (prefecture && nameHighlightedGame.attemptedPrefectureCodes.has(prefecture.code)) {
+        setTextFeedback(nameHighlightedFeedback, `Already tried ${prefecture.englishName}`, "is-duplicate");
+        nameHighlightedInput.focus();
+        return;
+      }
+
+      nameHighlightedGame.guessesRemaining -= 1;
+      nameHighlightedGame.incorrectGuesses += 1;
+
+      if (prefecture) {
+        nameHighlightedGame.attemptedPrefectureCodes.add(prefecture.code);
+        setPrefectureVisualState(prefecture.code, "is-incorrect");
+        setTextFeedback(nameHighlightedFeedback, `Incorrect — ${prefecture.englishName} is another prefecture`, "is-invalid");
+      } else {
+        setTextFeedback(nameHighlightedFeedback, "Not a prefecture", "is-invalid");
+      }
+
+      updateNameHighlightedBanner();
+
+      if (nameHighlightedGame.guessesRemaining === 0) {
+        resolveNameHighlightedRound(false);
+        return;
+      }
+
+      nameHighlightedInput.focus();
     };
 
     const updateNameAllProgress = () => {
@@ -1094,23 +1267,26 @@
       if (currentMode === MODES.NAME_ALL) handleNameAllMapClick(code);
     };
 
-    const renderRoundResults = () => {
-      resultsBreakdown.innerHTML = findGame.roundResults.map((roundResult, index) => {
+    const renderRoundResults = (roundResults) => {
+      resultsBreakdown.innerHTML = roundResults.map((roundResult, index) => {
         const incorrectDots = Array.from({ length: roundResult.incorrectGuesses }, () => '<span class="guess-dot guess-dot--incorrect"></span>').join("");
         const correctDot = roundResult.wasCorrect ? '<span class="guess-dot guess-dot--correct"></span>' : "";
+        const skippedDot = roundResult.wasSkipped ? '<span class="guess-dot guess-dot--skipped"></span>' : "";
         const guessesUsed = roundResult.incorrectGuesses + (roundResult.wasCorrect ? 1 : 0);
-        const outcome = roundResult.wasCorrect ? `Correct in ${guessesUsed} ${guessesUsed === 1 ? "guess" : "guesses"}` : `Failed after ${guessesUsed} ${guessesUsed === 1 ? "guess" : "guesses"}`;
+        const outcome = roundResult.wasSkipped ? (roundResult.incorrectGuesses ? `Skipped after ${roundResult.incorrectGuesses} incorrect ${roundResult.incorrectGuesses === 1 ? "guess" : "guesses"}` : "Skipped without an incorrect guess") : roundResult.wasCorrect ? `Correct in ${guessesUsed} ${guessesUsed === 1 ? "guess" : "guesses"}` : `Failed after ${guessesUsed} ${guessesUsed === 1 ? "guess" : "guesses"}`;
 
-        return `<li class="round-result"><span class="round-number">${index + 1}.</span><span class="round-prefecture">${roundResult.prefecture.englishName}</span><span class="guess-dots" aria-hidden="true">${incorrectDots}${correctDot}</span><span class="visually-hidden">${outcome}</span></li>`;
+        return `<li class="round-result"><span class="round-number">${index + 1}.</span><span class="round-prefecture">${roundResult.prefecture.englishName}</span><span class="guess-dots" aria-hidden="true">${incorrectDots}${correctDot}${skippedDot}</span><span class="visually-hidden">${outcome}</span></li>`;
       }).join("");
     };
 
-    const showResults = () => {
+    const showRoundGameResults = (game, heading) => {
       clearMapState();
       gameBanner.hidden = true;
+      nameHighlightedEntry.hidden = true;
       gameControls.hidden = true;
-      resultsScore.textContent = `${findGame.correctRounds} of ${findGame.roundQueue.length} rounds correct`;
-      renderRoundResults();
+      resultsHeading.textContent = heading;
+      resultsScore.textContent = `${game.correctRounds} of ${game.roundQueue.length} rounds correct`;
+      renderRoundResults(game.roundResults);
       results.hidden = false;
     };
 
@@ -1118,11 +1294,13 @@
       currentMode = mode;
       findGame = null;
       nameAllGame = null;
+      nameHighlightedGame = null;
       clearMapState();
       updateModeButtons();
       selectedPrefecture.textContent = "No prefecture selected";
       selectedPrefecture.hidden = mode !== MODES.EXPLORE;
       gameBanner.hidden = true;
+      nameHighlightedEntry.hidden = true;
       gameControls.hidden = true;
       results.hidden = true;
       nameAllBanner.hidden = true;
@@ -1130,6 +1308,7 @@
 
       if (mode === MODES.FIND_ON_MAP) startFindOnMapGame();
       if (mode === MODES.NAME_ALL) startNameAllGame();
+      if (mode === MODES.NAME_HIGHLIGHTED) startNameHighlightedGame();
     };
 
     const applyZoom = () => {
@@ -1192,17 +1371,32 @@
     modeButtons.forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
 
     advanceRoundButton.addEventListener("click", () => {
-      if (findGame.roundIndex === findGame.roundQueue.length - 1) {
-        showResults();
+      const activeGame = currentMode === MODES.FIND_ON_MAP ? findGame : nameHighlightedGame;
+
+      if (activeGame.roundIndex === activeGame.roundQueue.length - 1) {
+        const heading = currentMode === MODES.FIND_ON_MAP ? "Results" : "Name Highlighted Results";
+        showRoundGameResults(activeGame, heading);
         return;
       }
 
-      findGame.roundIndex += 1;
-      beginFindRound();
+      activeGame.roundIndex += 1;
+      if (currentMode === MODES.FIND_ON_MAP) beginFindRound();
+      if (currentMode === MODES.NAME_HIGHLIGHTED) beginNameHighlightedRound();
     });
 
-    playAgainButton.addEventListener("click", startFindOnMapGame);
+    playAgainButton.addEventListener("click", () => {
+      if (currentMode === MODES.FIND_ON_MAP) startFindOnMapGame();
+      if (currentMode === MODES.NAME_HIGHLIGHTED) startNameHighlightedGame();
+    });
     returnToExploreButton.addEventListener("click", () => setMode(MODES.EXPLORE));
+    nameHighlightedForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitNameHighlightedGuess();
+    });
+    skipNameHighlightedButton.addEventListener("click", skipNameHighlightedRound);
+    nameHighlightedInput.addEventListener("input", () => {
+      if (nameHighlightedGame && !nameHighlightedGame.roundResolved) setTextFeedback(nameHighlightedFeedback, "", null);
+    });
     nameAllForm.addEventListener("submit", (event) => {
       event.preventDefault();
       submitNameAllGuess();
