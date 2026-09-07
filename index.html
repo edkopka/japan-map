@@ -297,7 +297,7 @@
     }
 
     .selection {
-      margin: 1rem auto 0;
+      margin: 0 0 0.75rem;
       padding: 0.85rem 1rem;
       border: 1px solid #cbd5de;
       border-radius: 0.5rem;
@@ -526,6 +526,8 @@
       <button class="mode-button" type="button" data-mode="find-on-map" aria-pressed="false">Find on Map</button>
       <button class="mode-button" type="button" data-mode="name-highlighted" aria-pressed="false">Name Highlighted</button>
     </nav>
+
+    <p id="selected-prefecture" class="selection" aria-live="polite">No prefecture selected</p>
 
     <section id="game-banner" class="game-banner" aria-label="Find on Map round information" hidden>
       <div class="game-stat game-stat--round">
@@ -786,8 +788,6 @@
 </svg>
 
     </div>
-
-    <p id="selected-prefecture" class="selection" aria-live="polite">No prefecture selected</p>
   </main>
 
   <footer>Map SVG by Geolonia, based on Wikipedia's Japanese map SVG; licensed under the GNU Free Documentation License (GFDL).</footer>
