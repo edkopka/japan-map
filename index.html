@@ -202,6 +202,14 @@
       text-align: center;
     }
 
+    .game-prompt-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.55rem 0.75rem;
+    }
+
     .game-prompt {
       display: block;
       font-size: clamp(1.25rem, 4vw, 1.7rem);
@@ -525,7 +533,10 @@
         <strong id="round-progress">1 of 10</strong>
       </div>
       <div class="game-centre">
-        <strong id="game-prompt" class="game-prompt">Find Hokkaido</strong>
+        <div class="game-prompt-row">
+          <strong id="game-prompt" class="game-prompt">Find Hokkaido</strong>
+          <button id="skip-find-on-map" class="action-button" type="button" hidden>Skip</button>
+        </div>
         <div id="name-highlighted-entry" class="name-highlighted-entry" hidden>
           <form id="name-highlighted-form" class="name-highlighted-form">
             <label class="visually-hidden" for="name-highlighted-input">Highlighted prefecture name</label>
@@ -863,6 +874,7 @@
     const roundProgress = document.querySelector("#round-progress");
     const gamePrompt = document.querySelector("#game-prompt");
     const guessesRemaining = document.querySelector("#guesses-remaining");
+    const skipFindOnMapButton = document.querySelector("#skip-find-on-map");
     const gameControls = document.querySelector("#game-controls");
     const gameMessage = document.querySelector("#game-message");
     const advanceRoundButton = document.querySelector("#advance-round");
@@ -971,6 +983,7 @@
       findGame.roundResolved = false;
       gameBanner.setAttribute("aria-label", "Find on Map round information");
       gameBanner.hidden = false;
+      skipFindOnMapButton.hidden = false;
       nameHighlightedEntry.hidden = true;
       gameControls.hidden = true;
       results.hidden = true;
@@ -993,21 +1006,28 @@
       beginFindRound();
     };
 
-    const resolveFindRound = (wasCorrect) => {
+    const resolveFindRound = (wasCorrect, wasSkipped = false) => {
       const target = findGame.roundQueue[findGame.roundIndex];
       findGame.roundResolved = true;
-      findGame.roundResults.push({ prefecture: target, incorrectGuesses: findGame.incorrectCodes.size, wasCorrect });
+      findGame.roundResults.push({ prefecture: target, incorrectGuesses: findGame.incorrectCodes.size, wasCorrect, wasSkipped });
+      skipFindOnMapButton.hidden = true;
 
       if (wasCorrect) {
         findGame.correctRounds += 1;
         setTextFeedback(gameMessage, "Correct!", null);
       } else {
         setPrefectureVisualState(target.code, "is-revealed");
-        setTextFeedback(gameMessage, "Incorrect!", null);
+        setTextFeedback(gameMessage, wasSkipped ? "Skipped" : "Incorrect!", wasSkipped ? "is-revealed" : null);
       }
 
       advanceRoundButton.textContent = findGame.roundIndex === findGame.roundQueue.length - 1 ? "See results" : "Next round";
       gameControls.hidden = false;
+    };
+
+    const skipFindRound = () => {
+      if (!findGame || findGame.roundResolved) return;
+      resolveFindRound(false, true);
+      advanceRoundButton.focus();
     };
 
     const handleExploreClick = (code) => {
@@ -1300,6 +1320,7 @@
       selectedPrefecture.textContent = "No prefecture selected";
       selectedPrefecture.hidden = mode !== MODES.EXPLORE;
       gameBanner.hidden = true;
+      skipFindOnMapButton.hidden = true;
       nameHighlightedEntry.hidden = true;
       gameControls.hidden = true;
       results.hidden = true;
@@ -1389,6 +1410,7 @@
       if (currentMode === MODES.NAME_HIGHLIGHTED) startNameHighlightedGame();
     });
     returnToExploreButton.addEventListener("click", () => setMode(MODES.EXPLORE));
+    skipFindOnMapButton.addEventListener("click", skipFindRound);
     nameHighlightedForm.addEventListener("submit", (event) => {
       event.preventDefault();
       submitNameHighlightedGuess();
